@@ -1,12 +1,7 @@
-import Box from '@/components/Box'
-import Image from 'next/image'
 import Link from 'next/link'
 
-
-export const SERVER_BASE_URL = 'http://localhost:5052'
-export const ICE_CONFIG = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]}
-
 export default function Home() {
+
   return (
     <main className="flex flex-col items-center p-16 min-h-screen">
       <h1 className='text-3xl'>Streamify</h1>

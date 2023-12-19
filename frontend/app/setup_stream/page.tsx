@@ -1,8 +1,9 @@
 "use client";
 
+
 import axios from 'axios';
-import React, { useEffect, useState } from 'react'
-import { SERVER_BASE_URL, ICE_CONFIG } from '../page';
+import React from 'react'
+import { SERVER_BASE_URL, socket, ICE_CONFIG } from '../../core/constants';
 
 const SetupStream = () => {
 
@@ -12,67 +13,86 @@ const SetupStream = () => {
       displaySurface: 'window',
     }
   }
+  let peerConnection: RTCPeerConnection, localDescription: RTCSessionDescription;
 
-  const [UserID, setUserID] = useState("");
+  
+  const initSocketConn = ()=>{
 
-  const sendOffer = async () => {
-    // initiate a peer connection and send offer details to server for storage
+    socket.connect()
 
-    const peerConnection = new RTCPeerConnection(ICE_CONFIG);
-    const offer = await peerConnection.createOffer()
-    await peerConnection.setLocalDescription(offer)
-
-    axios.post(SERVER_BASE_URL+'/api/registerStream', {
-      sourceDesc : offer
+    // event handlers
+    socket.on('offer', async (offer)=>{
+      const serverDesc = offer.serverDesc;
+      await peerConnection.setRemoteDescription(serverDesc);
+      console.log('set remote desc!')
     })
+  }
 
+  const initPeerConnWithServer = async () => {
+
+    // Setup a peer connection for server to connect to
+    peerConnection = new RTCPeerConnection(ICE_CONFIG)
+    const offer = await peerConnection.createOffer()
+    localDescription = new RTCSessionDescription(offer)
+    await peerConnection.setLocalDescription(localDescription)
+
+    // register this stream
+    axios.post(SERVER_BASE_URL+'/api/registerStream', {
+      streamerDesc : localDescription
+    })
+    .then(async (res)=>{
+      // res has serverDesc and streamID
+      let {serverDesc, streamID} = res.data;
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(serverDesc))
+
+      // after setting remote desc, send a socket event to register for signalling
+      console.log('sending register')
+      if (!socket.connected){
+        socket.connect()
+      }
+      socket.on("connect", ()=>{
+        socket.emit("signal-register", streamID)
+      })
+    })
   }
 
   const getScreenVideo = () =>{
     navigator.mediaDevices.getDisplayMedia(constraints)
       .then(stream => {
           // Once video is available, set video element
-          console.log('Got MediaStream:', stream);
           const vid : HTMLVideoElement = document.querySelector('#stream') as HTMLVideoElement
           vid.srcObject = stream
 
-          // create and send an offer
-          sendOffer()
-
+          // handle stream end
+          const [track] = stream.getTracks();
+          track.addEventListener('ended', ()=>{
+            socket.disconnect();
+            console.log('stream ended')
+          })
       })
       .catch(error => {
           console.error('Error accessing media devices.', error);
       });
   }
 
-  const getRemoteClientID = ()=>{
-    console.log('sending')
-    axios.post(SERVER_BASE_URL+'/api/getStreamIDs', 
-      {
-        userID: UserID
-      }
-    )
-    .then((res)=>{
-      console.log(res)
-      // setStreams(res.data)
-    })
+  // const getRemoteClientID = ()=>{
+  //   console.log('sending')
+  //   axios.post(SERVER_BASE_URL+'/api/getStreamIDs', 
+  //     {
+  //       userID: UserID
+  //     }
+  //   )
+  //   .then((res)=>{
+  //     console.log(res)
+  //     // setStreams(res.data)
+  //   })
+  // }
+
+  const initStream = ()=>{
+    getScreenVideo()
+    initPeerConnWithServer()
+    // initSocketConn()
   }
-
-  const createSignalChannel = (e: React.MouseEvent<HTMLParagraphElement, MouseEvent>) => {
-    // let remoteClientId = (e.target as HTMLParagraphElement).innerText;
-
-    // const signalingChannel = new SignalingChannel(remoteClientId);
-    // signalingChannel.addEventListener('message', message => {
-    //     // New message from remote client received
-    // });
-
-    // // Send an asynchronous message to the remote client
-    // signalingChannel.send('Hello!');
-  }
-
-  // useEffect(()=>{
-    
-  // }, [])
 
 
   return (
@@ -81,7 +101,7 @@ const SetupStream = () => {
       <div id="stream-ctn" className='w-1/2'>
         <video id='stream' className='mx-auto object-contain' autoPlay playsInline controls={true}></video>
       </div>
-      <button className='bg-red-200 hover:bg-red-400 px-10 py-4 rounded-full' onClick={getScreenVideo}>New Stream</button>
+      <button className='bg-red-200 hover:bg-red-400 active:bg-red-500 px-10 py-4 rounded-full' onClick={initStream}>New Stream</button>
       {/* <button className='bg-red-200 hover:bg-red-400 px-10 py-4 rounded-full' onClick={getRemoteClientID}>Send req</button> */}
       
     </div>
